@@ -164,7 +164,7 @@ function downloadCtyDat ($url){
 
     /*
      * Output JSON, just uncomment this section
-     * json_encode($array);
+     * echo json_encode($array);
      */
 
     /*
