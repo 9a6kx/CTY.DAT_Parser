@@ -107,7 +107,7 @@ function downloadCtyDat ($url){
             $aliases=mb_ereg_replace('    ' , "", $aliases);                                                                   // Additional cleaning of consecutive whitespaces
             $aliases=mb_ereg_replace("\n"   , "", $aliases);                                                                   // Additional cleaning of \n
             $aliases=mb_ereg_replace("\r"   , "", $aliases);                                                                   // Additional cleaning of \r
-            $aliases=explode(',', $aliases);                                                                                              // Both cleaning in this function and mbTrim function should be carefully tested and probably rewritten
+            $aliases=explode(',', $aliases);                                                                                   // Both cleaning in this function and mbTrim function should be carefully tested and probably rewritten
             if (is_numeric($latitude)) {
                 $temp_array[] = array(
                     "Entity" => mb_trim($entity),
