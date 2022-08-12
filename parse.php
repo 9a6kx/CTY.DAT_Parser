@@ -8,10 +8,7 @@
  * Version name: IU5HES Michele
  */
 
-/*
- * Things to change or adjust following:
- */
-$url='https://www.country-files.com/bigcty/download/2022/bigcty-20220804.zip'; // URL Of BIG.CTY ZIP Archive
+$url='https://www.country-files.com/bigcty/download/2022/bigcty-20220811.zip'; // URL Of BIG.CTY ZIP Archive
 $extractDir = 'extracted'; // Name of the directory where files from the ZIP are extracted
 
 /*
@@ -23,9 +20,7 @@ ini_set('memory_limit', '1024M'); // or I can use 1G
  * Don't know why :)
  */
 
-/*
- *
- */
+
 
 /*
  * Function for geting the cty.dat from the web and unzip the file
@@ -108,12 +103,7 @@ ini_set('memory_limit', '1024M'); // or I can use 1G
         return $cleaned;
     } // custom made safe multibyte trimming
     function parseCtyDatToArrray(string $file) :array{
-        $handle = file_get_contents($_SERVER["DOCUMENT_ROOT"] .'/log_analyzer'.$file); // getting the file to string
-        /*
-         * try this on webserver if upper produces an error !
-         * don't forget to CHMOD everything to 755 (only php and html file)
         $handle = file_get_contents(".".$file); // getting the file to string
-        */
         $array = explode(";", $handle);                                                // getting the array from string
         $temp_array=(array) null;                                                               // I need temp array to fill in during the looping
         foreach ($array as $value) {
@@ -188,7 +178,7 @@ ini_set('memory_limit', '1024M'); // or I can use 1G
                             $output_structure["UTC_offset"] = $value["UTC_offset"];
                             return $output_structure; // out of the function with desired results
                         }
-                        else if (str_starts_with($exact_call, $exact_callsign)) {
+                        else if (mb_strpos($exact_call, $exact_callsign)=== 0) {
                             $a = mb_strwidth($exact_call);
                             $b = $a - $lenght_of_exact;
                             $c = mb_substr($exact_call, -$b);
@@ -398,9 +388,9 @@ foreach ($array as $key=>$value) {
                                         "Primary_DXCC_Prefix" => $main_value_array["Primary_DXCC_Prefix"],
                                         "CQ_Zone" => $main_value_array["CQ_Zone"],
                                         "ITU_Zone" => $main_value_array["ITU_Zone"],
-                                        "Continet" => $main_value_array["Continent"],
+                                        "Continent" => $main_value_array["Continent"],
                                         "Latitude" => $main_value_array["Latitude"],
-                                        "Logitude" => $main_value_array["Longitude"],
+                                        "Longitude" => $main_value_array["Longitude"],
                                         "UTC_offset" => $main_value_array["UTC_offset"]
                                     );
                                 }
@@ -429,9 +419,9 @@ foreach ($array as $key=>$value) {
                                     "Primary_DXCC_Prefix" => $main_value_array["Primary_DXCC_Prefix"],
                                     "CQ_Zone" => $main_value_array["CQ_Zone"],
                                     "ITU_Zone" => $main_value_array["ITU_Zone"],
-                                    "Continet" => $main_value_array["Continent"],
+                                    "Continent" => $main_value_array["Continent"],
                                     "Latitude" => $main_value_array["Latitude"],
-                                    "Logitude" => $main_value_array["Longitude"],
+                                    "Longitude" => $main_value_array["Longitude"],
                                     "UTC_offset" => $main_value_array["UTC_offset"]
                                 );
                             }
@@ -460,7 +450,8 @@ foreach ($array as $key=>$value) {
                             if ($first_letter !== mb_substr($clean_prefix, 0, 1)) {
                                 continue;
                             }
-                            if(is_numeric($b)){goto a;}
+
+		            if(is_numeric($b)){goto a;}
                             if (mb_substr($b, 0, $lenght_of_alias) === mb_substr($clean_prefix, 0, $lenght_of_alias)) {
                                 foreach ($array as $main_key => $main_value_array) {
                                     if ($main_key === $value['main_index']) {
@@ -476,9 +467,9 @@ foreach ($array as $key=>$value) {
                                             "Primary_DXCC_Prefix" => $main_value_array["Primary_DXCC_Prefix"],
                                             "CQ_Zone" => $main_value_array["CQ_Zone"],
                                             "ITU_Zone" => $main_value_array["ITU_Zone"],
-                                            "Continet" => $main_value_array["Continent"],
+                                            "Continent" => $main_value_array["Continent"],
                                             "Latitude" => $main_value_array["Latitude"],
-                                            "Logitude" => $main_value_array["Longitude"],
+                                            "Longitude" => $main_value_array["Longitude"],
                                             "UTC_offset" => $main_value_array["UTC_offset"]
                                         );
                                     }
@@ -493,7 +484,7 @@ foreach ($array as $key=>$value) {
 
         if (!$b && !$c) { // only one portion of callsign ex 9A1P
             // callsign is $a
-            a:
+	    a:
             $first_letter = mb_substr($a, 0, 1);
             $match = (array)null;
             foreach ($alias_prefixes as $key => $value) {
@@ -516,9 +507,9 @@ foreach ($array as $key=>$value) {
                                         "Primary_DXCC_Prefix" => $main_value_array["Primary_DXCC_Prefix"],
                                         "CQ_Zone" => $main_value_array["CQ_Zone"],
                                         "ITU_Zone" => $main_value_array["ITU_Zone"],
-                                        "Continet" => $main_value_array["Continent"],
+                                        "Continent" => $main_value_array["Continent"],
                                         "Latitude" => $main_value_array["Latitude"],
-                                        "Logitude" => $main_value_array["Longitude"],
+                                        "Longitude" => $main_value_array["Longitude"],
                                         "UTC_offset" => $main_value_array["UTC_offset"]
                                     );
                                 }
@@ -607,9 +598,9 @@ foreach ($array as $key=>$value) {
 <span><b>Primary DXCC Prefix: </b> <?= $returned["Primary_DXCC_Prefix"]?></span><br />
 <span><b>CQ Zone: </b> <?= $returned["CQ_Zone"] ?></span><br />
 <span><b>ITU Zone: </b> <?= $returned["ITU_Zone"] ?></span><br />
-<span><b>Continent: </b> <?= $returned["Continet"] ?></span><br />
+<span><b>Continent: </b> <?= $returned["Continent"] ?></span><br />
 <span><b>Latitude: </b> <?= $returned["Latitude"] ?></span><br />
-<span><b>Longitude: </b> <?= $returned["Logitude"] ?></span><br />
+<span><b>Longitude: </b> <?= $returned["Longitude"] ?></span><br />
 <span><b>UTC Offset: </b> <?= $returned["UTC_offset"] ?></span><br />
 
 <p><i>Please report back all that you find incorrect on my qrz.com e-mail address</i></p>
