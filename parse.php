@@ -460,7 +460,7 @@ foreach ($array as $key=>$value) {
                             if ($first_letter !== mb_substr($clean_prefix, 0, 1)) {
                                 continue;
                             }
-
+                            if(is_numeric($b)){goto a;}
                             if (mb_substr($b, 0, $lenght_of_alias) === mb_substr($clean_prefix, 0, $lenght_of_alias)) {
                                 foreach ($array as $main_key => $main_value_array) {
                                     if ($main_key === $value['main_index']) {
@@ -493,6 +493,7 @@ foreach ($array as $key=>$value) {
 
         if (!$b && !$c) { // only one portion of callsign ex 9A1P
             // callsign is $a
+            a:
             $first_letter = mb_substr($a, 0, 1);
             $match = (array)null;
             foreach ($alias_prefixes as $key => $value) {
