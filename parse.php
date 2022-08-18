@@ -1,585 +1,201 @@
 <?php
-// declare(strict_types = 1);
+declare(strict_types = 1);
+include_once './configs/sysconfig.inc'; // where system variables are set
+include_once './configs/hamradio.inc';  // where HAM specific variables are set
+
+include_once 'download_unzip_cty.php';  // download BIG_CTY.zip file from URL defined in hamradio.inc --> downloadCtyDat() function;
+include_once 'to_big_array.php'; // dump ugly structure of CTY.DAT to big preformated array --> mb_trim() function;
+include_once 'find_overrides.php'; // function to find CQ and ITU zone Overrides in Alias dxcc prefix --> findOverrides() function;
+include_once 'primary_prefix.php'; // function that creates Primary Prefix array --> primaryPrefixes() function;
+include_once 'alias_prefix_list.php'; // function that holds Aliases Prefixes --> aliasPrefixes() function;
+include_once 'wae_information.php'; // function that update exact matches array and alias prefixes with info about WAE override --> WAE_information() function;
+include_once 'exact_matches.php'; // function that holds Exact entries in big.cty --> exactMatches() function;
+include_once 'match_exact.php'; // function that matches call upon Exact entries in array of exact_matches --> matchExact() function - returns structured array;
+include_once 'split_call_to_portions.php'; // splits callsign in up to tree parts if slashes found --> splitCall() function;
+include_once './resources/mb_trim.php'; // multibyte trim function to trim whitespaces safetly--> mb_trim() function;
+include_once 'match_last_part.php'; // matching 2nd or 3rd part of callsign with slashes with /P /QRP or similar --> lastPartKnown() function - returns true or false;
+include_once 'match_primary_prefix_slash.php'; // matching 2nd or 1st part of callsign with slashes with Primary DXCC prefix --> matchPrimary() function - returns structured array;
+include_once 'match_callsign.php'; // matching full call uppon prefixes--> matchCallsign() function - returns structured array;
+include_once 'manually_override.php'; // override exeptions & stupidity !
+
+$callsign = $_POST['call'] ?? 'IH9/9A6KX/P';
+
+$checked_callsign=$callsign; //INPUT CALL
+
+$checked_callsign=mb_trim($checked_callsign);
+
+$checked_callsign=mb_strtoupper($checked_callsign); // TO UPPERCASE
+
+$big_array = parseCtyDatToArrray(downloadCtyDat($url)); // GET BIG_CTY.ZIP TO BIG ARRAY
+
+$primary_prefixes = primaryPrefixes($big_array); // BUILD MAIN PREFIX LIST
+/*
+ * [main_index] => 166
+ * [prefix] => *IG9
+ * [WAE] => 1 // or value 0
+ */
+$alias_prefixes = WAE_information($big_array, aliasPrefixes($big_array)); // BUILD 2ND-ARY PREFIX LIST
+/*
+ * [main_index] => 69
+ * [prefix] => BV
+ * [WAE] => -1 // only this value
+ */
+$exact_matches = WAE_information($big_array, exactMatches($big_array)); // MAKE EXACT MATCHES LIST AND RETURN WITH INFO ABOUT OFFICIAL DXCC ENTITY OR EXTENDED WAE LIST
 
 /*
- * Hamradio Prefixes for Log Analyisis
- * 9A6KX @ January 2021
- * v1.0 b
- * Version name: IU5HES Michele
+ * [main_index] => 25
+ * [prefix] => =4Z5FL/LH
+ * [WAE] => -1 // only this value
  */
 
-$url='https://www.country-files.com/bigcty/download/2022/bigcty-20220811.zip'; // URL Of BIG.CTY ZIP Archive
-$extractDir = 'extracted'; // Name of the directory where files from the ZIP are extracted
+$lets_try_exact_match = matchExact($checked_callsign, $exact_matches, $big_array); // TRY TO MAKE EXACT MATCH
+ /*
+  * Returnes structured array if found
+  * with flag Offical that is bool false or true !!
+  * if unnoficial is on WAE extended list with IT9, IH9, TA1, GM/s ...
+  *
+  * returns (array) null if exact not found
+  *
+  * note: CQ or ITU, or both zones overrides are final on output of this function
+  */
 
-/*
- * For testing purposes only
- */
-ini_set('memory_limit', '1024M'); // or I can use 1G
+$last_part_check=false;
+$match_primary_prefix=(array) null;
+$super_partial_match=(array) null;
 
-/*
- * Don't know why :)
- */
+if (empty($lets_try_exact_match)) {
+    $checked_callsign_splited = splitCall($checked_callsign); // SPLIT UPPON SLASHES
 
+    $last_part_check = lastPartKnown($checked_callsign_splited); // check last part for known slash addons, returns true or false
 
+    $match_primary_prefix = matchPrimary($checked_callsign, $checked_callsign_splited, $alias_prefixes, $big_array, $last_part_check);
+    $a=$match_primary_prefix;
 
-/*
- * Function for geting the cty.dat from the web and unzip the file
- */
-    function downloadCtyDat ($url) :string{
     /*
-     * Never is an good idea to call for global variable, but let's consider this a non-mutable variable
-     * Function has a lot side effects is not a pure function
-     */
-    $zipFile = 'BIG.CTY.zip';                                       // Rename ZIP file
-    global $extractDir;                                             // Name of the directory where files are extracted
-    $zipResource = fopen($zipFile, "w");
-    // Get The Zip File From Server
-    $ch = curl_init();
-    curl_setopt($ch, CURLOPT_URL, $url);
-    curl_setopt($ch, CURLOPT_FAILONERROR, true);
-    curl_setopt($ch, CURLOPT_HEADER, 0);
-    curl_setopt($ch, CURLOPT_FOLLOWLOCATION, true);
-    curl_setopt($ch, CURLOPT_AUTOREFERER, true);
-    curl_setopt($ch, CURLOPT_BINARYTRANSFER, true);
-    curl_setopt($ch, CURLOPT_TIMEOUT, 10);
-    curl_setopt($ch, CURLOPT_SSL_VERIFYHOST, 0);
-    curl_setopt($ch, CURLOPT_SSL_VERIFYPEER, 0);
-    curl_setopt($ch, CURLOPT_FILE, $zipResource);
-    $page = curl_exec($ch);
-    if (!$page) {
-        echo 'Error :- ' . curl_error($ch);
-    }
-    curl_close($ch);
-    /* Open the Zip file */
-    $zip = new ZipArchive;
-    $extractPath = $extractDir;
+*  If primary prefix is matched in HB0/9A8MM or in LID in action scenarion 9A6KX/TK outputs structured array
+*  if not matched it outputs null array
+*/
 
-    if ($zip->open($zipFile) != "true") {
-        echo 'Error :- Unable to open the Zip File';
-        return 0;
-    }
-
-    /* Extract Zip File */
-    $zip->extractTo($extractPath);
-    $zip->close();
-    $files=scandir($extractDir);
-    $file=(array) null;
-    foreach ($files as $value) {
-        if($value==='cty.dat' || $value==='CTY.DAT' ) {
-            $file[]='/'.$extractDir.'/'.$value;
-        }
-    }
-    $i=$file[0];
-
-    return $i; // PATH TO CTY.DAT FILE
-    } // lets fetch CtyDat, a BIG one
-    function mb_trim($string, $charlist='\\\\s', $ltrim=true, $rtrim=true) {
-        $both_ends = $ltrim && $rtrim;
-
-        $char_class_inner = preg_replace(
-            array( '/[\^\-\]\\\]/S', '/\\\{4}/S' ),
-            array( '\\\\\\0', '\\' ),
-            $charlist
-        );
-
-        $work_horse = '[' . $char_class_inner . ']+';
-        $ltrim && $left_pattern = '^' . $work_horse;
-        $rtrim && $right_pattern = $work_horse . '$';
-
-        if($both_ends)
-        {
-            $pattern_middle = $left_pattern . '|' . $right_pattern;
-        }
-        elseif($ltrim)
-        {
-            $pattern_middle = $left_pattern;
-        }
-        else
-        {
-            $pattern_middle = $right_pattern;
-        }
-
-        $cleaned = preg_replace("/$pattern_middle/usSD", '', $string);
-        return $cleaned;
-    } // custom made safe multibyte trimming
-    function parseCtyDatToArrray(string $file) :array{
-        $handle = file_get_contents(".".$file); // getting the file to string
-        $array = explode(";", $handle);                                                // getting the array from string
-        $temp_array=(array) null;                                                               // I need temp array to fill in during the looping
-        foreach ($array as $value) {
-
-            list($entity, $cq_zone, $itu_zone, $continent, $latitude, $longitude, $utc_offset, $prefix, $aliases) = array_pad(explode(':', $value, 9), 9, null);
-            $aliases=mb_trim($aliases);
-            $aliases=mb_ereg_replace('    ' , "", $aliases);                                                                   // Additional cleaning of consecutive whitespaces
-            $aliases=mb_ereg_replace("\n"   , "", $aliases);                                                                   // Additional cleaning of \n
-            $aliases=mb_ereg_replace("\r"   , "", $aliases);                                                                   // Additional cleaning of \r
-            $aliases=explode(',', $aliases);                                                                                   // Both cleaning in this function and mbTrim function should be carefully tested and probably rewritten
-            if (is_numeric($latitude)) {
-                $temp_array[] = array(
-                    "Entity" => mb_trim($entity),
-                    "CQ_Zone" => mb_trim($cq_zone),
-                    "ITU_Zone" => mb_trim($itu_zone),
-                    "Continent" => mb_trim($continent),
-                    "Latitude" => mb_trim($latitude),
-                    "Longitude" => mb_trim($longitude),
-                    "UTC_offset" => mb_trim($utc_offset),
-                    "Primary_DXCC_Prefix" => mb_trim($prefix),
-                    "Alias_DXCC_Prefixes" =>mb_trim($aliases)
-                );
-            }
-        }
-        $array = $temp_array;
-
-        /*
-         * So I got pretty structured array
-         * With some specific details:
-         *
-         * 	Primary DXCC Prefix:
-         *  “*” preceding this prefix indicates that the country is on the DARC WAEDC list, and counts in CQ-sponsored contests, but not ARRL-sponsored contests).
-         *  i.e. Sicily [IT9] and African Italy (Pantaleria Island) [IG9] are still counted as Italy in ARRL contests
-         *  i.e. Similar case with Asiatic Turkey [TA] and European Turkey [TA1] - both Turkey [TA] for ARRL contests
-         *
-         *
-         * The following special characters can be applied after an alias prefix:
-         * (#)	Override CQ Zone
-         * [#]	Override ITU Zone
-         * <#/#>	Override latitude/longitude
-         * {aa}	Override Continent
-         * ~#~	Override local time offset from GMT
-         *
-         * If an alias prefix is preceded by ‘=’, this indicates that the prefix is to be treated as a full callsign, i.e. must be an exact match.
-         *
-         */
-        return $array;
-    } // Lets make an array from file, big array
-    function tryToFindExact1st(string $callsign, array $array)
-    { // match input callsign as exact match
-        /* Here we will match input callsign uppon prefixes preceded by '=' meaning that the prefix is to be treated as a full callsign, i.e. must be an exact match (this is coded as EXACT)
-        * or match call prefixes preceded by '=' and ending with modifiers that override CQ or ITU zones, or both
-        */
-        $exact_callsign = "=" . $callsign; // prepending '=' sign to the call to do patching
-        $output_structure = (array)null; // this is our output array containing match and all callsign/entity data if one found, or else we're returning it as null !
-        $lenght_of_exact = mb_strwidth($exact_callsign);
-
-
-        foreach ($array as $key => $value) {
-            foreach ($value as $description => $content) {
-                if (is_array($content) && sizeof($content) > 1) { // if aliases array have more than one entry - for ex. 1A is defined as primary prefix, but also as single entry in aliases dxcc prefixes, so its on no concern, skip those kind of entities
-                    foreach ($content as $index => $exact_call) {
-                        if ($exact_callsign === $exact_call) { // exact matching of input call to alias dxcc prefixes preceded by = sign !
-                            $output_structure["Callsign"] = $callsign;
-                            $output_structure["Entity"] = $value["Entity"];
-                            $output_structure["Primary_DXCC_Prefix"] = $value["Primary_DXCC_Prefix"];
-                            $output_structure["CQ_Zone"] = $value["CQ_Zone"];
-                            $output_structure["ITU_Zone"] = $value["ITU_Zone"];
-                            $output_structure["Continent"] = $value["Continent"];
-                            $output_structure["Latitude"] = $value["Latitude"];
-                            $output_structure["Longitude"] = $value["Longitude"];
-                            $output_structure["UTC_offset"] = $value["UTC_offset"];
-                            return $output_structure; // out of the function with desired results
-                        }
-                        else if (mb_strpos($exact_call, $exact_callsign)=== 0) {
-                            $a = mb_strwidth($exact_call);
-                            $b = $a - $lenght_of_exact;
-                            $c = mb_substr($exact_call, -$b);
-                            $matches = (array)null;
-                            if ($b === 3 || $b === 4) {
-                                preg_match("/\[[^\]]*\]/", $c, $matches); // modifiers [#] or [##] - finding them with regex and returning updated values of ITU zone, ex:
-                                if ($matches != null) { // UA9OW/BY2HIT example of exact where ITU only modified
-                                    $output_structure["Callsign"] = $callsign;
-                                    $output_structure["Entity"] = $value["Entity"];
-                                    $output_structure["Primary_DXCC_Prefix"] = $value["Primary_DXCC_Prefix"];
-                                    $output_structure["CQ_Zone"] = $value["CQ_Zone"];
-                                    $output_structure["ITU_Zone"] = mb_substr($matches[0], 1, -1);
-                                    $output_structure["Continent"] = $value["Continent"];
-                                    $output_structure["Latitude"] = $value["Latitude"];
-                                    $output_structure["Longitude"] = $value["Longitude"];
-                                    $output_structure["UTC_offset"] = $value["UTC_offset"];
-                                    return $output_structure; // out of the function with desired results
-                                }
-
-                                preg_match("/\(([^\)]*)\)/", $c, $matches); // modifiers (#) or (##) (rare) - finding them with regex and returning updated values of CQ zone
-                                if ($matches != null) { // 8S8ODEN example of only CQ zone modified
-                                    $output_structure["Callsign"] = $callsign;
-                                    $output_structure["Entity"] = $value["Entity"];
-                                    $output_structure["Primary_DXCC_Prefix"] = $value["Primary_DXCC_Prefix"];
-                                    $output_structure["CQ_Zone"] = mb_substr($matches[0], 1, -1);
-                                    $output_structure["ITU_Zone"] = $value["ITU_Zone"];
-                                    $output_structure["Continent"] = $value["Continent"];
-                                    $output_structure["Latitude"] = $value["Latitude"];
-                                    $output_structure["Longitude"] = $value["Longitude"];
-                                    $output_structure["UTC_offset"] = $value["UTC_offset"];
-                                    return $output_structure; // out of the function with desired results
-                                }
-                            }
-                            if ($b === 6 || $b === 7 || $b === 8) { // examples both CQ and ITU zone modified BY1WXD/0 , KH6JGA ... searching for both [] and () modifers values and return updated
-                                preg_match("/\[[^\]]*\]/", $c, $matches);
-                                preg_match("/\(([^\)]*)\)/", $c, $matches2);
-                                $output_structure["Callsign"] = $callsign;
-                                $output_structure["Entity"] = $value["Entity"];
-                                $output_structure["Primary_DXCC_Prefix"] = $value["Primary_DXCC_Prefix"];
-                                $output_structure["CQ_Zone"] = mb_substr($matches2[0], 1, -1);
-                                $output_structure["ITU_Zone"] = mb_substr($matches[0], 1, -1);
-                                $output_structure["Continent"] = $value["Continent"];
-                                $output_structure["Latitude"] = $value["Latitude"];
-                                $output_structure["Longitude"] = $value["Longitude"];
-                                $output_structure["UTC_offset"] = $value["UTC_offset"];
-                                return $output_structure;
-                            } else {
-                                $output_structure = (array)null; // matching non enlisted full call in aliases for ex. 9a6kx returns null, so its a validation for calling function that'll do surgery upon the input call, yikes !
-                                return $output_structure;
-                            }
-                        }
-                    }
-                }
-            }
-        }
-    }
-
- // we match Exact call of Exact/CQ_or_ITU_override
-   function anatomyOfACallsign(string $callsign, array $array) : array
-    {
-        /* calssign additions */
-
-        $callsign_additions_legal = array("P", "M", "A", "AM", "MM",); // normal additions
-        $callsign_additions_illegal = array("LGT", "LH", "LS", "LHT", "QRP", "PM", "LT", "J", "JOTA", "YL", "MILL", "FF"); // 9A6KX/MILL OMG :)
-        $additions = array_merge($callsign_additions_illegal, $callsign_additions_legal); // combining all additions in single array
-
-        /*
-         * "Normal" / Legal additions are /P, /M ... I consider /QRP to be useless callsign addition, so I listed it in "illegal"
-         * as others ten variants of /Lighthouse abrevations, YL - ever considered calling 9A6KX/OM ? :)
-         * is it /YL at the end Lithuania or /OM at the end Slovakia, or is it just a gender notice?
-         * who knows, I decided to list 'YL' as gender, op guest in YL will probably be YL/KK1L or similar
-         * am I 9A6KX/LH in Norway or I'm just silly giving something unusal as call addition operating from lighthouse
-         */
-
-
-        if(mb_substr_count($callsign, "/")===2) {
-            list($a, $b, $c) = explode("/", $callsign);
-        }
-        elseif (mb_substr_count($callsign, "/")===1){
-            list($a, $b) = explode("/", $callsign);
-            $c = null;
-        }
-        elseif (mb_substr_count($callsign, "/")===0){
-            $a = $callsign;
-            $b = null;
-            $c = null;
-        }
-
-
-        /* We divided callsign to three variables determined by slashes
-        * Imagine HB0/9A8MM/P
-        */
-
-        /* I will take only alias prefixes from big_cty array (main prefix is listed under aliases also) , clean it of overrides but preserve info of entity index of big array
-        * and return new array with overrides of cq and itu zone if any
-        * so we can match callsign on smaller array to make this go faster ?
-        * array of alias dxcc prefixes has > 7000 entries :)
-        * we will always check uppon that unless format I/9A6KX where 'I' matches EXACT Primary Prefix
-        */
-
-        $alias_prefixes = (array)null; // empty array we will fill in
-
-        /* Lucky for us there is a quite common thing - if you go in SP, you should identify as SP/9A6KX not 3Z/9A6KX
-        * althought both are valid Poland prefixes
-        * so we will build up a 'base' of primary prefixes only (another a lot smaller array of prefixes)
-        */
-
-        $primary_prefixes = (array)null;
-
-        /*
-         * Now we're creating alias dxcc prefixes list that will hold key to call full entry from big_cty array
-         * overrides for CQ and ITU zones if any
-         * and a Alias Prefix (Where Primary is also listed)
-         */
-foreach ($array as $key=>$value) {
-    foreach ($value as $description => $content) {
-        if (is_array($content)) {
-            foreach ($content as $index => $prefix) { // $key holds index of big array with dxcc entity
-                // we will check prefix for = sign at the end and ignore exacts
-
-                if (mb_substr($prefix, 0, 1) !== "=") {
-                    $cleaned_prefix = $prefix;
-                    $overrides = null;
-                    $cq_override = mb_strstr($prefix, "(", true); // check CQ override exists and clean prefix from start to the begining of (##)
-                    $itu_override = mb_strstr($prefix, "[", true); // check ITU override exists and clean prefix from start to the begining of [##]
-
-                    if ($cq_override) { // if we have CQ override its only CQ zone override or maybe both CQ and ITU
-                        $cleaned_prefix = $cq_override;
-                        $overrides = mb_strstr($prefix, "(", false); // rest from the bigining of '(' sign
-
-                    } else if ($itu_override) { // if we dont have CQ but have ITU override
-                        $cleaned_prefix = $itu_override;
-                        $overrides = mb_strstr($prefix, "[", false); // rest from the bigining of '[' sign
-                    }
-
-                    $alias_prefixes[] = array(
-                        "main_index" => $key,
-                        "prefix" => $cleaned_prefix,
-                        "overrides" => $overrides);
-                }
-
-            }
-        }
+    if (empty($match_primary_prefix)) {
+        $super_partial_match = matchAlias($checked_callsign, $checked_callsign_splited, $primary_prefixes, $alias_prefixes, $big_array, $last_part_check);
+        $a = $super_partial_match;
     }
 }
+else {
+    $a = $lets_try_exact_match;
+}
 
-        /*
-         * Lets fill also array of Primary DXCC Prefixes
-         */
-        foreach ($array as $key => $value) {
-            foreach ($value as $description => $content) {
-                if ($description === "Primary_DXCC_Prefix") {
-                    $primary_prefixes[] = array(
-                        "main_index" => $key,
-                        "prefix" => $content);
-                }
-            }
-        }
+$manually_override=lastCheck($a, $big_array);
 
-        /* If last part ($c) doesn't exist - callsign is composed of only two parts
-        * lets look the last one, if its from addition list, ignore it and point only $a for prefix matching for ex. YU1LM/QRP
-        * if not we will match the second part as prefix for ex. I1AAA/IS0 - because what the hell else could it be ??
-        */
+$cleanup=cleanUpFinal($manually_override);
+array_multisort($cleanup, SORT_DESC);
 
-        $addition_present = null;
-        $primary_match = (array)null; // This will hold our return Values if they are found
-        if ($c === null) { // check second part on the list of both legal and illegal additions
-            foreach ( $additions as $key => $value) {
-                if ($b === $value) { // callsign has addition from our list
-                    $addition_present = array(1); // return confirmation
-                }
-            }
-        }
+// NOTES about MATCHING:
 
-        if ($addition_present !== null && $addition_present[0] === 1) { // we don't observe last part as it is know addition for ex. /P
+// SV/a, KH8/s only exact matches in CTY file // will need a fix sometime in future
+// VP6/d, VP8/g, VP8/h, VP8/o, VP8/s only exact matches in CTY file // will need a fix sometime in future
 
-            $first_letter = mb_substr($a, 0, 1);
-
-            $match = (array)null;
-            $cq_override = (array)null;
-            $itu_override = (array)null;
-
-            foreach ($alias_prefixes as $key => $value) {
-                foreach ($value as $cleaned => $clean_prefix) {
-
-                    if ($cleaned === "prefix") {
-
-                        $lenght_of_alias = mb_strlen($clean_prefix);
-
-                        if ($first_letter !== mb_substr($clean_prefix, 0, 1)) {
-                            continue; // if first letter of our prefix and lookup 'cell' is not same, just skip the entry
-                            // faster than exact evaluation of equality
-                        }
+// JD/m, JD/o only exact matches in CTY file
+// 3Y/b, 3Y/p only exact matches in CTY file
+// E5/n only exact matches in CTY file - all other E5 that are not exact are matched as South Cook E5
+// FK/c only exact matches in CTY file - all other FK New Caledonia
+// 3D2/c, 3D2/r, only exact matches in CTY file - all other 3D2 Fiji
 
 
-                        if (mb_substr($a, 0, $lenght_of_alias) === mb_substr($clean_prefix, 0, $lenght_of_alias)) {
-                            foreach ($array as $main_key => $main_value_array) {
-                                if ($main_key === $value['main_index']) {
+// All Matching id done by guessing :)
 
-                                    preg_match("/(?<=\[).+?(?=\])/", $value['overrides'], $matches);
-                                    $itu_override = $matches;
-                                    preg_match("/(?<=\().+?(?=\))/", $value['overrides'], $matches);
-                                    $cq_override = $matches;
-                                    $match = array(
-                                        "Callsign" => $callsign,
-                                        "Entity" => $main_value_array["Entity"],
-                                        "Primary_DXCC_Prefix" => $main_value_array["Primary_DXCC_Prefix"],
-                                        "CQ_Zone" => $main_value_array["CQ_Zone"],
-                                        "ITU_Zone" => $main_value_array["ITU_Zone"],
-                                        "Continent" => $main_value_array["Continent"],
-                                        "Latitude" => $main_value_array["Latitude"],
-                                        "Longitude" => $main_value_array["Longitude"],
-                                        "UTC_offset" => $main_value_array["UTC_offset"]
-                                    );
-                                }
-                            }
-                        }
-
-                    }
-                }
-            }
-        } else {
-            /* if addition was not known for ex. /QRP then we will consider rest after slash as a prefix
-            * unless it matches exactly the aliass prefixes !!!
-            * unless is such a silly word in programing :)
-            */
-
-            $match = (array)null;
-
-            foreach ($primary_prefixes as $key => $value) { // does it matches primary prefix as in SP/DK5AV ?
-                foreach ($value as $item_name => $content) {
-                    if ($item_name === "prefix" && $a === $content) {
-                        foreach ($array as $main_key => $main_value_array) {
-                            if ($main_key === $value['main_index']) {
-                                $primary_match = array( // If yes we are seting primary_match
-                                    "Callsign" => $callsign,
-                                    "Entity" => $main_value_array["Entity"],
-                                    "Primary_DXCC_Prefix" => $main_value_array["Primary_DXCC_Prefix"],
-                                    "CQ_Zone" => $main_value_array["CQ_Zone"],
-                                    "ITU_Zone" => $main_value_array["ITU_Zone"],
-                                    "Continent" => $main_value_array["Continent"],
-                                    "Latitude" => $main_value_array["Latitude"],
-                                    "Longitude" => $main_value_array["Longitude"],
-                                    "UTC_offset" => $main_value_array["UTC_offset"]
-                                );
-                            }
-                        }
-                    }
-                }
+function cleanUpFinal(array $solution) :array{
+    if (array_key_exists(0,$solution)) {
+        $new_return=(array) null;
+        if (sizeof($solution)===1) {
+            foreach ($solution as $key=>$value){
+                $new_return=array(
+                  "Callsign"=>$solution[0]["Callsign"],
+                  "Primary_DXCC_Prefix"=>$solution[0]["Primary_DXCC_Prefix"],
+                  "Entity"=>$solution[0]["Entity"],
+                  "CQ_Zone"=>$solution[0]["CQ_Zone"],
+                  "ITU_Zone"=>$solution[0]["ITU_Zone"],
+                  "Continent"=>$solution[0]["Continent"],
+                  "Latitude"=>$solution[0]["Latitude"],
+                  "Longitude"=>$solution[0]["Longitude"],
+                  "UTC_offset"=>$solution[0]["UTC_offset"],
+                  "Official"=>$solution[0]["Official"]
+                );
+                return $new_return;
             }
 
-            /*
-            * We want to check also silly lid style of II1AAA/IS0
-            * so we're talking of $b portion of eploxed callsign
-            */
 
-            $first_letter = mb_substr($b, 0, 1);
-            $cq_override = (array)null;   // I have a habbit of constantly setting variables to null :)
-            $itu_override = (array)null;  // even when not needed :)
-
-            if (!$primary_match) {
-                foreach ($alias_prefixes as $key => $value) {
-                    foreach ($value as $cleaned => $clean_prefix) {
-
-                        if ($cleaned === "prefix") {
-
-                            $lenght_of_alias = mb_strlen($clean_prefix);
-
-                            if ($first_letter !== mb_substr($clean_prefix, 0, 1)) {
-                                continue;
-                            }
-
-		            if(is_numeric($b)){goto a;}
-                            if (mb_substr($b, 0, $lenght_of_alias) === mb_substr($clean_prefix, 0, $lenght_of_alias)) {
-                                foreach ($array as $main_key => $main_value_array) {
-                                    if ($main_key === $value['main_index']) {
-
-                                        preg_match("/(?<=\[).+?(?=\])/", $value['overrides'], $matches);
-                                        $itu_override = $matches;
-                                        preg_match("/(?<=\().+?(?=\))/", $value['overrides'], $matches);
-                                        $cq_override = $matches;
-
-                                        $match = array(
-                                            "Callsign" => $callsign,
-                                            "Entity" => $main_value_array["Entity"],
-                                            "Primary_DXCC_Prefix" => $main_value_array["Primary_DXCC_Prefix"],
-                                            "CQ_Zone" => $main_value_array["CQ_Zone"],
-                                            "ITU_Zone" => $main_value_array["ITU_Zone"],
-                                            "Continent" => $main_value_array["Continent"],
-                                            "Latitude" => $main_value_array["Latitude"],
-                                            "Longitude" => $main_value_array["Longitude"],
-                                            "UTC_offset" => $main_value_array["UTC_offset"]
-                                        );
-                                    }
-                                }
-                            }
-
-                        }
-                    }
-                }
-            } else $match = $primary_match;
         }
+    }
+    return $solution;
+}
 
-        if (!$b && !$c) { // only one portion of callsign ex 9A1P
-            // callsign is $a
-	    a:
-            $first_letter = mb_substr($a, 0, 1);
-            $match = (array)null;
-            foreach ($alias_prefixes as $key => $value) {
-                foreach ($value as $cleaned => $clean_prefix) {
+$dxcc_entry=(array) null;
+$wae_extended=(array) null;
 
-                    if ($cleaned === "prefix") {
-
-                        $lenght_of_alias = mb_strlen($clean_prefix);
-
-                        if ($first_letter !== mb_substr($clean_prefix, 0, 1)) {
-                            continue;
-                        }
-
-                        if (mb_substr($a, 0, $lenght_of_alias) === mb_substr($clean_prefix, 0, $lenght_of_alias)) {
-                            foreach ($array as $main_key => $main_value_array) {
-                                if ($main_key === $value['main_index']) {
-                                    $match = array(
-                                        "Callsign" => $callsign,
-                                        "Entity" => $main_value_array["Entity"],
-                                        "Primary_DXCC_Prefix" => $main_value_array["Primary_DXCC_Prefix"],
-                                        "CQ_Zone" => $main_value_array["CQ_Zone"],
-                                        "ITU_Zone" => $main_value_array["ITU_Zone"],
-                                        "Continent" => $main_value_array["Continent"],
-                                        "Latitude" => $main_value_array["Latitude"],
-                                        "Longitude" => $main_value_array["Longitude"],
-                                        "UTC_offset" => $main_value_array["UTC_offset"]
-                                    );
-                                }
-                            }
-                        }
-
-                    }
-                }
-            }
-        }
-
-        if ($itu_override) {
-            $match['ITU_Zone'] = $itu_override[0];
-        }
-        if ($cq_override) {
-            $match['CQ_Zone'] = $cq_override[0];
-        }
-    return $match;
-    } // we match uppon prefixes
-
-
-/*
-* MAIN Flow
-*/
-    $callsign = $_POST['call'] ?? 'HB0/9A8MM/P';
-
-
-    $file=downloadCtyDat($url);                                 // Download ZIP from web, extract, and get path to CTY.DAT file
-    $array=parseCtyDatToArrray(downloadCtyDat($url));           // Get the CTY.DAT file parsed to pretty structured array
-                                                                // Read the parseCtyDatToArrray function comments for info about non-standard entries
-
-
-    $callsign = strtoupper($callsign);
-    $returned = tryToFindExact1st($callsign,$array) ?? anatomyOfACallsign($callsign, $array); // return array from matching if null (exact matching failed) else lets do math
-
-    /*
-     * Display pretty formated value of structured Array, just uncomment this section
-     * echo "<pre>";
-     * print_r($returned);
-     * echo "</pre>";
-    */
-
-    /*
-     * Output JSON, just uncomment this section
-     * echo json_encode($returned);
-     */
-
-
-
-
-     /*
-     * This is intended as a part of bigger Hamradio log analyzer with GUI
-     * Still playing around in spare time
-     * 73s to all
-     * Mirko 9A6KX
-     */
-     
-     /*
-     Copyright notice from www.country-files.com
-     Jim Reisert AD1C
-     Copyright © 1994-
-
-     Permission is hereby granted, free of charge, to any person obtaining a copy of this software and associated documentation files (the “Software”), to deal in the Software without restriction, including without limitation the rights to use, copy, modify, merge, publish, distribute, sublicense, and/or sell copies of the Software, and to permit persons to whom the Software is furnished to do so, subject to the following conditions:
-
-     The above copyright notice and this permission notice shall be included in all copies or substantial portions of the Software.
-
-     THE SOFTWARE IS PROVIDED “AS IS”, WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
-     */
-
-
+if (key_exists(0, $cleanup)) {
+    if($cleanup[0]["Official"]===true) {
+        $dxcc_entry=array(
+            "Callsign"=>$cleanup[0]["Callsign"],
+            "Primary_DXCC_Prefix"=>$cleanup[0]["Primary_DXCC_Prefix"],
+            "Entity"=>$cleanup[0]["Entity"],
+            "CQ_Zone"=>$cleanup[0]["CQ_Zone"],
+            "ITU_Zone"=>$cleanup[0]["ITU_Zone"],
+            "Continent"=>$cleanup[0]["Continent"],
+            "Latitude"=>$cleanup[0]["Latitude"],
+            "Longitude"=>$cleanup[0]["Longitude"],
+            "UTC_offset"=>$cleanup[0]["UTC_offset"]
+        );
+        $wae_extended=array(
+            "Callsign"=>$cleanup[1]["Callsign"],
+            "Primary_DXCC_Prefix"=>$cleanup[1]["Primary_DXCC_Prefix"],
+            "Entity"=>$cleanup[1]["Entity"],
+            "CQ_Zone"=>$cleanup[1]["CQ_Zone"],
+            "ITU_Zone"=>$cleanup[1]["ITU_Zone"],
+            "Continent"=>$cleanup[1]["Continent"],
+            "Latitude"=>$cleanup[1]["Latitude"],
+            "Longitude"=>$cleanup[1]["Longitude"],
+            "UTC_offset"=>$cleanup[1]["UTC_offset"]
+        );
+    }
+    elseif (($cleanup[0]["Official"]===false)) {
+        $wae_extended=array(
+            "Callsign"=>$cleanup[0]["Callsign"],
+            "Primary_DXCC_Prefix"=>$cleanup[0]["Primary_DXCC_Prefix"],
+            "Entity"=>$cleanup[0]["Entity"],
+            "CQ_Zone"=>$cleanup[0]["CQ_Zone"],
+            "ITU_Zone"=>$cleanup[0]["ITU_Zone"],
+            "Continent"=>$cleanup[0]["Continent"],
+            "Latitude"=>$cleanup[0]["Latitude"],
+            "Longitude"=>$cleanup[0]["Longitude"],
+            "UTC_offset"=>$cleanup[0]["UTC_offset"]
+        );
+        $dxcc_entry=array(
+            "Callsign"=>$cleanup[1]["Callsign"],
+            "Primary_DXCC_Prefix"=>$cleanup[1]["Primary_DXCC_Prefix"],
+            "Entity"=>$cleanup[1]["Entity"],
+            "CQ_Zone"=>$cleanup[1]["CQ_Zone"],
+            "ITU_Zone"=>$cleanup[1]["ITU_Zone"],
+            "Continent"=>$cleanup[1]["Continent"],
+            "Latitude"=>$cleanup[1]["Latitude"],
+            "Longitude"=>$cleanup[1]["Longitude"],
+            "UTC_offset"=>$cleanup[1]["UTC_offset"]
+        );
+    }
+} else {
+    $dxcc_entry=array(
+        "Callsign"=>$cleanup["Callsign"],
+        "Primary_DXCC_Prefix"=>$cleanup["Primary_DXCC_Prefix"],
+        "Entity"=>$cleanup["Entity"],
+        "CQ_Zone"=>$cleanup["CQ_Zone"],
+        "ITU_Zone"=>$cleanup["ITU_Zone"],
+        "Continent"=>$cleanup["Continent"],
+        "Latitude"=>$cleanup["Latitude"],
+        "Longitude"=>$cleanup["Longitude"],
+        "UTC_offset"=>$cleanup["UTC_offset"]
+    );
+    $wae_extended=(array) null;
+}
 ?>
 
 <!-- Generation of HTML elements and listing values-->
@@ -589,20 +205,49 @@ foreach ($array as $key=>$value) {
     <title>Callsign DXCC check by 9a6kx</title>
     <link rel=”stylesheet” href=”https://maxcdn.bootstrapcdn.com/bootstrap/4.0.0/css/bootstrap.min.css”rel=”nofollow” integrity=”sha384-Gn5384xqQ1aoWXA+058RXPxPg6fy4IWvTNh0E263XmFcJlSAwiGgFAW/dAiS6JXm” crossorigin=”anonymous”>
 </head>
-<body>
+<body style="padding-left: 20px;">
 
 <h2>Check Callsign by 9A6KX</h2>
-
-<span><b>Callsign: </b> <?= $returned["Callsign"] ?></span><br />
-<span><b>DXCC Entity: </b> <?= $returned["Entity"] ?></span><br />
-<span><b>Primary DXCC Prefix: </b> <?= $returned["Primary_DXCC_Prefix"]?></span><br />
-<span><b>CQ Zone: </b> <?= $returned["CQ_Zone"] ?></span><br />
-<span><b>ITU Zone: </b> <?= $returned["ITU_Zone"] ?></span><br />
-<span><b>Continent: </b> <?= $returned["Continent"] ?></span><br />
-<span><b>Latitude: </b> <?= $returned["Latitude"] ?></span><br />
-<span><b>Longitude: </b> <?= $returned["Longitude"] ?></span><br />
-<span><b>UTC Offset: </b> <?= $returned["UTC_offset"] ?></span><br />
+<br />
+<h3>Offical DXCC Entity:</h3>
+<span><b>Callsign: </b> <?= $dxcc_entry["Callsign"] ?></span><br />
+<span><b>DXCC Entity: </b> <?= $dxcc_entry["Entity"] ?></span><br />
+<span><b>Primary DXCC Prefix: </b> <?= $dxcc_entry["Primary_DXCC_Prefix"]?></span><br />
+<span><b>CQ Zone: </b> <?= $dxcc_entry["CQ_Zone"] ?></span><br />
+<span><b>ITU Zone: </b> <?= $dxcc_entry["ITU_Zone"] ?></span><br />
+<span><b>Continent: </b> <?= $dxcc_entry["Continent"] ?></span><br />
+<span><b>Latitude: </b> <?= $dxcc_entry["Latitude"] ?></span><br />
+<span><b>Longitude: </b> <?= $dxcc_entry["Longitude"] ?></span><br />
+<span><b>UTC Offset: </b> <?= $dxcc_entry["UTC_offset"] ?></span><br />
 
 <p><i>Please report back all that you find incorrect on my qrz.com e-mail address</i></p>
 </body>
 </html>
+
+<?php
+if (!empty($wae_extended)){
+    echo "
+    <h3>WAE List Entry (not official DX Entity):</h3><br />
+    <span><b>Callsign: </b> {$wae_extended['Callsign']}</span><br />
+    <span><b>Callsign: </b> {$wae_extended['Entity']}</span><br />
+    <span><b>Callsign: </b> {$wae_extended['Primary_DXCC_Prefix']}</span><br />
+    <span><b>Callsign: </b> {$wae_extended['CQ_Zone']}</span><br />
+    <span><b>Callsign: </b> {$wae_extended['ITU_Zone']}</span><br />
+    <span><b>Callsign: </b> {$wae_extended['Continent']}</span><br />
+    <span><b>Callsign: </b> {$wae_extended['Latitude']}</span><br />
+    <span><b>Callsign: </b> {$wae_extended['Longitude']}</span><br />
+    <span><b>Callsign: </b> {$wae_extended['UTC_offset']}</span><br />
+    ";
+}
+echo "<h3>Explanatory:</h3><p>";
+echo "Callsign matching is primary done based on guessing<br />
+      // SV/a, KH8/s only exact matches in CTY file // will need a fix sometime in future<br />
+      // VP6/d, VP8/g, VP8/h, VP8/o, VP8/s only exact matches in CTY file // will need a fix sometime in future<br />
+      // JD/m, JD/o only exact matches in CTY file<br />
+      // 3Y/b, 3Y/p only exact matches in CTY file<br />
+      // E5/n only exact matches in CTY file - all other E5 that are not exact are matched as South Cook E5<br />
+      // FK/c only exact matches in CTY file - all other FK New Caledonia<br />
+      // 3D2/c, 3D2/r, only exact matches in CTY file - all other 3D2 Fiji<br />
+      // If callsign consists of three parts for ex. HB0/9A8MM/QRP and third part is rubbish then we ignore it<br />
+      // If someone is LID and is using 9A6KX/E7 instead E7/9A6KX or similar, I just don't want to observe people ingoring the rules and laws";
+?>
