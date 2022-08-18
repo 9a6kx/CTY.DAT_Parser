@@ -1,5 +1,5 @@
 <?php
-function matchAlias(string $checked_callsign, array $checked_callsign_splited, array $primary_prefixes, array $alias_prefixes, array $big_array, bool $last_part_check) :array {
+function matchAlias(string $checked_callsign, array $checked_callsign_splited, array $primary_prefixes, array $alias_prefixes, array $big_array, bool $last_part_check=true) :array {
     $solution = (array) null;
 
     if ($last_part_check===true && $checked_callsign_splited['int']===2) {
@@ -20,7 +20,8 @@ function matchAlias(string $checked_callsign, array $checked_callsign_splited, a
     elseif ($checked_callsign_splited['int']===1) {
         $what_to_match = $checked_callsign_splited['a'];
     }
-    else {$what_to_match="";}
+
+    else {$what_to_match=$checked_callsign_splited['a'];}
     $first_letter = mb_substr($what_to_match, 0, 1);
 
     foreach ($alias_prefixes as $key => $value) {

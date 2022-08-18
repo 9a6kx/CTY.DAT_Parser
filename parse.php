@@ -15,12 +15,13 @@ include_once 'split_call_to_portions.php'; // splits callsign in up to tree part
 include_once './resources/mb_trim.php'; // multibyte trim function to trim whitespaces safetly--> mb_trim() function;
 include_once 'match_last_part.php'; // matching 2nd or 3rd part of callsign with slashes with /P /QRP or similar --> lastPartKnown() function - returns true or false;
 include_once 'match_primary_prefix_slash.php'; // matching 2nd or 1st part of callsign with slashes with Primary DXCC prefix --> matchPrimary() function - returns structured array;
-include_once 'match_callsign.php'; // matching full call uppon prefixes--> matchCallsign() function - returns structured array;
+include_once 'match_callsign.php'; // matching full call uppon prefixes--> matchAlias() function - returns structured array;
 include_once 'manually_override.php'; // override exeptions & stupidity !
 
 $callsign = $_POST['call'] ?? 'IH9/9A6KX/P';
 
 $checked_callsign=$callsign; //INPUT CALL
+
 
 $checked_callsign=mb_trim($checked_callsign);
 
@@ -66,9 +67,11 @@ $super_partial_match=(array) null;
 if (empty($lets_try_exact_match)) {
     $checked_callsign_splited = splitCall($checked_callsign); // SPLIT UPPON SLASHES
 
+
+
     $last_part_check = lastPartKnown($checked_callsign_splited); // check last part for known slash addons, returns true or false
 
-    $match_primary_prefix = matchPrimary($checked_callsign, $checked_callsign_splited, $alias_prefixes, $big_array, $last_part_check);
+    $match_primary_prefix = matchPrimary($checked_callsign, $checked_callsign_splited, $alias_prefixes, $big_array);
     $a=$match_primary_prefix;
 
     /*
@@ -77,8 +80,10 @@ if (empty($lets_try_exact_match)) {
 */
 
     if (empty($match_primary_prefix)) {
-        $super_partial_match = matchAlias($checked_callsign, $checked_callsign_splited, $primary_prefixes, $alias_prefixes, $big_array, $last_part_check);
+        $super_partial_match = matchAlias($checked_callsign, $checked_callsign_splited, $primary_prefixes, $alias_prefixes, $big_array);
         $a = $super_partial_match;
+        var_dump($super_partial_match);
+        echo "<pre>";
     }
 }
 else {
@@ -183,18 +188,20 @@ if (key_exists(0, $cleanup)) {
         );
     }
 } else {
-    $dxcc_entry=array(
-        "Callsign"=>$cleanup["Callsign"],
-        "Primary_DXCC_Prefix"=>$cleanup["Primary_DXCC_Prefix"],
-        "Entity"=>$cleanup["Entity"],
-        "CQ_Zone"=>$cleanup["CQ_Zone"],
-        "ITU_Zone"=>$cleanup["ITU_Zone"],
-        "Continent"=>$cleanup["Continent"],
-        "Latitude"=>$cleanup["Latitude"],
-        "Longitude"=>$cleanup["Longitude"],
-        "UTC_offset"=>$cleanup["UTC_offset"]
-    );
-    $wae_extended=(array) null;
+    if(!key_exists(0, $cleanup)) {
+        $dxcc_entry = array(
+            "Callsign" => $cleanup["Callsign"],
+            "Primary_DXCC_Prefix" => $cleanup["Primary_DXCC_Prefix"],
+            "Entity" => $cleanup["Entity"],
+            "CQ_Zone" => $cleanup["CQ_Zone"],
+            "ITU_Zone" => $cleanup["ITU_Zone"],
+            "Continent" => $cleanup["Continent"],
+            "Latitude" => $cleanup["Latitude"],
+            "Longitude" => $cleanup["Longitude"],
+            "UTC_offset" => $cleanup["UTC_offset"]
+        );
+        $wae_extended = (array)null;
+    }
 }
 ?>
 

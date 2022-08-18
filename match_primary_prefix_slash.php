@@ -7,7 +7,7 @@
  * @param bool $last_part_known
  * @return array
  */
-function matchPrimary(string $callsign, array $portions, array $primary_list, array $big_array, bool $last_part_known) :array
+function matchPrimary(string $callsign, array $portions, array $primary_list, array $big_array, bool $last_part_known=true) :array
 {
     $solution = (array)null;
 

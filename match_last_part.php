@@ -17,12 +17,15 @@ function lastPartKnown(array $portions) :bool
     switch ($index) {
         case 3:
             $last_part = $portions['c'];
+            if(is_numeric($last_part)) {return true;}
             break;
         case 2:
             $last_part = $portions['b'];
+            if(is_numeric($last_part)) {return true;}
             break;
         case 1:
             $last_part = $portions['a'];
+            if(is_numeric($last_part)) {return true;}
             break;
     }
     $a=(array) null;
@@ -31,7 +34,6 @@ function lastPartKnown(array $portions) :bool
         $a[]=array(true);
         }
     }
-    if(is_numeric($last_part)) {return true;}
     if(!empty($a)) {return true;} else {return false;}
 }
 ?>
